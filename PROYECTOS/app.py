@@ -4,7 +4,7 @@ import pandas as pd
 # 1. Configuración visual de la página
 st.set_page_config(page_title="Convenios - CETPRO Cajamarca", page_icon="🔑", layout="centered")
 
-# 2. Control del estado de la sesión (para saber si ya inició sesión)
+# 2. Control del estado de la sesión
 if 'logged_in' not in st.session_state:
     st.session_state['logged_in'] = False
 
@@ -13,17 +13,15 @@ def login_screen():
     st.title("🔑 Sistema de Convenios")
     st.subheader("CETPRO Cajamarca")
     
-    # Formulario de acceso
     with st.form("login_form"):
         username = st.text_input("Usuario")
         password = st.text_input("Contraseña", type="password")
         submit_button = st.form_submit_button("Ingresar")
         
         if submit_button:
-            # Aquí defines el usuario y contraseña para entrar
             if username == "admin" and password == "cajamarca2026":
                 st.session_state['logged_in'] = True
-                st.rerun() # Recarga la página para entrar al sistema
+                st.rerun()
             else:
                 st.error("Usuario o contraseña incorrectos. Inténtalo de nuevo.")
 
@@ -32,18 +30,14 @@ def main_system():
     st.title("🔍 Buscador de Convenios")
     st.write("Ingresa los datos para realizar la consulta en la base de datos.")
     
-    # Botón para salir en la barra lateral
     if st.sidebar.button("Cerrar Sesión"):
         st.session_state['logged_in'] = False
         st.rerun()
     
-    # Intentar leer tu archivo real de Excel
+    # Lectura del archivo de Excel con el nombre correcto de tu repositorio
     try:
-        # Buscamos el archivo en la misma carpeta donde ejecutes el script
-        # Si tiene otro nombre exacto, lo cambias aquí:
-        df = pd.read_excel("BD_Convenios_CETPRO_CAJAMARCA.xlsx", sheet_name="BD_CONVENIOS", skiprows=2)
+        df = pd.read_excel("BD_CONVENIOS.xlsx", sheet_name="BD_CONVENIOS", skiprows=2)
     except Exception:
-        # Si no encuentra tu Excel, usa estos datos de prueba para que no se caiga la página
         datos_ejemplo = {
             'DNI_REPRESENTANTE': ['12345678', ''],
             'RUC': ['', '20510752938'],
@@ -54,7 +48,23 @@ def main_system():
         }
         df = pd.DataFrame(datos_ejemplo)
 
-    # El buscador interactivo en la web
     busqueda = st.text_input("Escribe el DNI, RUC o Nombre de la empresa:").strip()
 
-    if busqueda
+    if busqueda:
+        resultado = df[
+            df['DNI_REPRESENTANTE'].astype(str).str.contains(busqueda, case=False, na=False) |
+            df['RUC'].astype(str).str.contains(busqueda, case=False, na=False) |
+            df['EMPRESA_INSTITUCION'].astype(str).str.contains(busqueda, case=False, na=False)
+        ]
+        
+        if not resultado.empty:
+            st.success(f"Se encontraron {len(resultado)} coincidencia(s):")
+            st.dataframe(resultado)
+        else:
+            st.warning("No se encontraron registros que coincidan con la búsqueda.")
+
+# Control principal de pantallas
+if not st.session_state['logged_in']:
+    login_screen()
+else:
+    main_system()

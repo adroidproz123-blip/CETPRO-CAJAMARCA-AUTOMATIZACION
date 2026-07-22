@@ -1,17 +1,23 @@
 # -*- coding: utf-8 -*-
 """
 ==================================================================
- BUSCADOR DE CONVENIOS - CETPRO CAJAMARCA
+  SISTEMA CETPRO CAJAMARCA - CONVENIOS Y CONSTANCIAS EFSRT
 ==================================================================
 Aplicación 100% local (no realiza consultas a internet).
-Busca convenios por DNI del representante, RUC, nombre de empresa
-o representante, dentro del archivo Excel de la base de datos.
 
-Estructura de carpeta requerida (todo en el mismo repositorio):
-    app.py
-    requirements.txt
-    logo_cetpro.png                              (opcional, tu logo)
-    BD_Convenios_CETPRO_CORREGIDA_FINAL_V1.xlsx   (tu base de datos)
+- Módulo de Convenios: busca por DNI del representante, RUC,
+  empresa, representante o programa formativo.
+- Módulo de Constancias: busca por DNI, apellidos, nombres,
+  programa o módulo, y muestra el enlace a Google Drive.
+
+Detección automática de archivos:
+- No hace falta que el Excel se llame exactamente igual. Basta con
+  que el nombre del archivo .xlsx contenga la palabra "convenio" o
+  "constancia" para que la app lo detecte solo.
+- Cada vez que se sube (o reemplaza) una base de datos actualizada,
+  la app la vuelve a leer automáticamente: se controla la fecha de
+  modificación del archivo, así que no hace falta limpiar el caché
+  ni reiniciar la app manualmente.
 
 Autenticación (modifícala en la sección CONFIGURACIÓN):
     Usuario:    CETPRO CAJAMARCA
@@ -30,9 +36,6 @@ import streamlit as st
 # ==================================================================
 # 0. ANCLAR RUTAS A LA CARPETA DONDE VIVE app.py
 # ==================================================================
-# Esto evita errores si app.py está dentro de una subcarpeta del repo
-# (ej. /PROYECTOS/app.py) en vez de estar en la raíz. Todos los archivos
-# relacionados (excel, logo) deben estar en ESTA MISMA carpeta.
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 os.chdir(BASE_DIR)
 
@@ -40,7 +43,7 @@ os.chdir(BASE_DIR)
 # 1. CONFIGURACIÓN GENERAL
 # ==================================================================
 st.set_page_config(
-    page_title="CETPRO Cajamarca | Buscador de Convenios",
+    page_title="CETPRO Cajamarca | Gestión Institucional",
     page_icon="🎓",
     layout="wide",
     initial_sidebar_state="collapsed",
@@ -49,9 +52,16 @@ st.set_page_config(
 USUARIO_VALIDO = "CETPRO CAJAMARCA"
 CONTRASENA_VALIDA = "cetprocajamarca#2026"
 
-ARCHIVO_EXCEL = "BD_Convenios_CETPRO_CORREGIDA_FINAL_V1.xlsx"
+# --- Convenios ---
 HOJA_DATOS = "BD_CONVENIOS"
 FILA_ENCABEZADO = 3  # fila 4 del Excel (índice 0 = fila 1) contiene los encabezados
+PALABRA_CLAVE_CONVENIOS = "convenio"
+
+# --- Constancias EFSRT ---
+HOJA_CONSTANCIAS = "BD_CONSTANCIAS"
+FILA_ENCABEZADO_CONSTANCIAS = 0  # encabezados en la fila 1
+PALABRA_CLAVE_CONSTANCIAS = "constancia"
+
 LOGO_PATH = "logo_cetpro.png"
 
 COLUMNAS_ESPERADAS = [
@@ -59,6 +69,12 @@ COLUMNAS_ESPERADAS = [
     "DIRECCION", "REPRESENTANTE", "DNI_REPRESENTANTE", "TELEFONO",
     "PROGRAMA_FORMATIVO", "FECHA_INICIO", "DURACION_AÑOS", "FECHA_FIN",
     "DIAS_RESTANTES", "ESTADO", "CLAVE_BUSQUEDA", "OBSERVACIONES",
+]
+
+COLUMNAS_CONSTANCIAS_ESPERADAS = [
+    "ID_CONSTANCIA", "DNI", "APELLIDOS", "NOMBRES", "AÑO", "PROGRAMA_ESTUDIOS",
+    "MODULO_CONSTANCIA", "ESTADO", "NOMBRE_ARCHIVO_RECOMENDADO", "ENLACE_DRIVE",
+    "OBSERVACION", "VALIDACION",
 ]
 
 # ==================================================================
@@ -84,24 +100,11 @@ st.markdown(
             background: linear-gradient(180deg, #eef3f9 0%, #e4ecf5 100%);
         }
 
-        /* Elimina por completo la barra superior nativa de Streamlit
-           (display:none la saca del flujo, así no tapa el título) */
-        [data-testid="stHeader"] {
-            display: none;
-        }
-        [data-testid="stToolbar"] {
-            display: none;
-        }
-        [data-testid="stAppViewContainer"] {
-            padding-top: 0px;
-        }
-        .block-container {
-            padding-top: 2.2rem;
-            padding-bottom: 2rem;
-        }
+        [data-testid="stHeader"] { display: none; }
+        [data-testid="stToolbar"] { display: none; }
+        [data-testid="stAppViewContainer"] { padding-top: 0px; }
+        .block-container { padding-top: 2.2rem; padding-bottom: 2rem; }
 
-        /* Fuerza que los campos de texto (usuario, contraseña, búsqueda)
-           siempre se vean con fondo claro, sin importar el tema del navegador */
         .stTextInput input {
             background-color: #ffffff !important;
             color: #16273a !important;
@@ -112,7 +115,6 @@ st.markdown(
             font-weight: 600 !important;
         }
 
-        /* ---------- Encabezado institucional ---------- */
         .cetpro-header {
             background: linear-gradient(135deg, #06213a 0%, #0b3d62 55%, #14649e 100%);
             padding: 28px 36px;
@@ -137,7 +139,6 @@ st.markdown(
             font-weight: 500;
         }
 
-        /* ---------- Tarjeta de login ---------- */
         .login-box {
             max-width: 430px;
             margin: 30px auto 0 auto;
@@ -162,7 +163,6 @@ st.markdown(
             font-weight: 500;
         }
 
-        /* ---------- Tarjeta de resultado (vertical / párrafo) ---------- */
         .result-card {
             background: #ffffff;
             border-radius: 16px;
@@ -196,9 +196,7 @@ st.markdown(
             line-height: 2.1;
             margin: 0;
         }
-        .result-line b {
-            color: #06213a;
-        }
+        .result-line b { color: #06213a; }
 
         .stat-box {
             background: #ffffff;
@@ -208,11 +206,7 @@ st.markdown(
             text-align: center;
             border-top: 4px solid #14649e;
         }
-        .stat-number {
-            font-size: 24px;
-            font-weight: 800;
-            color: #06213a;
-        }
+        .stat-number { font-size: 24px; font-weight: 800; color: #06213a; }
         .stat-label {
             font-size: 12px;
             color: #3d5872;
@@ -243,7 +237,6 @@ st.markdown(
 # 3. FUNCIONES AUXILIARES
 # ==================================================================
 def normalizar(texto) -> str:
-    """Pasa a mayúsculas, quita tildes y espacios extra para comparar texto."""
     if texto is None:
         return ""
     texto = str(texto).strip().upper()
@@ -253,7 +246,6 @@ def normalizar(texto) -> str:
 
 
 def limpiar_numero(valor) -> str:
-    """Convierte valores tipo 26641673.0 -> '26641673' y quita espacios."""
     if pd.isna(valor):
         return ""
     texto = str(valor).strip()
@@ -262,39 +254,47 @@ def limpiar_numero(valor) -> str:
     return texto
 
 
+def _listar_archivos_recursivo(carpeta_raiz="."):
+    rutas = []
+    for carpeta_actual, subcarpetas, archivos in os.walk(carpeta_raiz):
+        subcarpetas[:] = [d for d in subcarpetas if not d.startswith(".")]
+        for f in archivos:
+            rutas.append(os.path.join(carpeta_actual, f))
+    return rutas
+
+
+def _mtime(ruta: str) -> float:
+    """Fecha de última modificación del archivo. Se usa como parte de la
+    clave de caché: si el archivo cambia (se sube una versión nueva),
+    esta función devuelve un número distinto y Streamlit vuelve a leer
+    el Excel automáticamente, sin necesidad de reiniciar la app."""
+    try:
+        return os.path.getmtime(ruta)
+    except Exception:
+        return 0.0
+
+
 @st.cache_data(show_spinner=False)
 def encontrar_logo():
-    """Busca el logo de forma flexible: nombre exacto, o cualquier imagen
-    cuyo nombre contenga 'logo' o 'cetpro', con extensión .png/.jpg/.jpeg,
-    revisando también dentro de subcarpetas."""
     if os.path.exists(LOGO_PATH):
         return LOGO_PATH
-
     extensiones_validas = (".png", ".jpg", ".jpeg", ".webp")
     try:
         todas_las_rutas = _listar_archivos_recursivo(".")
     except Exception:
         return None
-
-    # 1) Coincidencia exacta ignorando mayúsculas/minúsculas
     for ruta in todas_las_rutas:
         if os.path.basename(ruta).lower() == LOGO_PATH.lower():
             return ruta
-
-    # 2) Cualquier imagen que contenga "logo" o "cetpro" en el nombre
     for ruta in todas_las_rutas:
         nombre = os.path.basename(ruta).lower()
         if nombre.endswith(extensiones_validas) and ("logo" in nombre or "cetpro" in nombre):
             return ruta
-
     return None
 
 
 @st.cache_data(show_spinner=False)
-def logo_como_base64(ruta_logo: str):
-    """Convierte el logo a base64 para poder incrustarlo dentro de la
-    tarjeta HTML de login/encabezado (así queda realmente 'dentro' del
-    marco blanco y no como una imagen suelta encima)."""
+def logo_como_base64(ruta_logo: str, mtime: float):
     try:
         with open(ruta_logo, "rb") as f:
             datos = f.read()
@@ -305,135 +305,139 @@ def logo_como_base64(ruta_logo: str):
         return None
 
 
-def _listar_archivos_recursivo(carpeta_raiz="."):
-    """Recorre la carpeta raíz y todas sus subcarpetas (ignorando .git,
-    .streamlit, .devcontainer y otras carpetas ocultas) y devuelve
-    la lista de rutas de archivo encontradas."""
-    rutas = []
-    for carpeta_actual, subcarpetas, archivos in os.walk(carpeta_raiz):
-        subcarpetas[:] = [d for d in subcarpetas if not d.startswith(".")]
-        for f in archivos:
-            rutas.append(os.path.join(carpeta_actual, f))
-    return rutas
-
-
-def encontrar_archivo_excel():
-    """Busca el Excel de forma tolerante a mayúsculas/minúsculas y a la
-    ubicación exacta: revisa la carpeta de app.py y también sus subcarpetas,
-    por si el archivo quedó dentro de una carpeta distinta al subirlo a GitHub."""
-    if os.path.exists(ARCHIVO_EXCEL):
-        return ARCHIVO_EXCEL
-
+def encontrar_archivos_por_palabra(palabra_clave):
+    """Devuelve TODOS los .xlsx cuyo nombre contenga la palabra clave,
+    ordenados para intentarse en orden (por si hay duplicados subidos
+    por error, la app prueba con el siguiente si el primero falla)."""
     todos_los_archivos = _listar_archivos_recursivo(".")
-
-    # 1) Coincidencia exacta de nombre, ignorando mayúsculas/minúsculas
-    for ruta in todos_los_archivos:
-        if os.path.basename(ruta).lower() == ARCHIVO_EXCEL.lower():
-            return ruta
-
-    # 2) Cualquier archivo .xlsx que contenga "convenio" en el nombre
-    for ruta in todos_los_archivos:
-        nombre = os.path.basename(ruta).lower()
-        if nombre.endswith(".xlsx") and "convenio" in nombre:
-            return ruta
-
-    # 3) Como último recurso, el primer .xlsx que exista en cualquier subcarpeta
-    xlsx_disponibles = [r for r in todos_los_archivos if r.lower().endswith(".xlsx")]
-    if xlsx_disponibles:
-        return xlsx_disponibles[0]
-
-    return None
+    candidatos = [
+        r for r in todos_los_archivos
+        if os.path.basename(r).lower().endswith(".xlsx")
+        and palabra_clave.lower() in os.path.basename(r).lower()
+    ]
+    candidatos.sort()
+    return candidatos
 
 
+# ==================================================================
+# 4. CARGA DE DATOS (con recarga automática al detectar cambios)
+# ==================================================================
 @st.cache_data(show_spinner=False)
-def cargar_datos():
-    """Carga y limpia la base de datos desde el Excel local (sin internet)."""
-    ruta_excel = encontrar_archivo_excel()
+def _leer_convenios(ruta_excel: str, mtime: float):
+    df = pd.read_excel(ruta_excel, sheet_name=HOJA_DATOS, header=FILA_ENCABEZADO, engine="openpyxl")
 
-    if ruta_excel is None:
-        archivos_presentes = ", ".join(_listar_archivos_recursivo(".")) or "(la carpeta está vacía)"
-        return None, (
-            f"No se encontró ningún archivo Excel llamado '{ARCHIVO_EXCEL}' en el repositorio. "
-            f"Archivos presentes en la carpeta: {archivos_presentes}"
-        )
-
-    try:
-        df = pd.read_excel(
-            ruta_excel,
-            sheet_name=HOJA_DATOS,
-            header=FILA_ENCABEZADO,
-            engine="openpyxl",
-        )
-    except Exception as e:
-        return None, f"Error al leer el archivo '{ruta_excel}': {e}"
-
-    # Nos quedamos solo con las columnas esperadas que existan
     columnas_presentes = [c for c in COLUMNAS_ESPERADAS if c in df.columns]
     df = df[columnas_presentes].copy()
-
-    # Eliminar filas vacías (sin ID_CONVENIO)
     if "ID_CONVENIO" in df.columns:
         df = df.dropna(subset=["ID_CONVENIO"]).reset_index(drop=True)
 
-    # Normalizar RUC y DNI a texto limpio
     for col in ["RUC", "DNI_REPRESENTANTE"]:
         if col in df.columns:
             df[col] = df[col].apply(limpiar_numero)
 
-    # Normalizar fechas
     for col in ["FECHA_INICIO", "FECHA_FIN"]:
         if col in df.columns:
             df[col] = pd.to_datetime(df[col], errors="coerce")
 
-    # Columna auxiliar de búsqueda (normalizada, sin tildes)
-    campos_busqueda = [
-        "RUC", "DNI_REPRESENTANTE", "EMPRESA_INSTITUCION", "REPRESENTANTE",
-        "PROGRAMA_FORMATIVO", "NRO_CONVENIO", "ID_CONVENIO",
-    ]
+    campos_busqueda = ["RUC", "DNI_REPRESENTANTE", "EMPRESA_INSTITUCION", "REPRESENTANTE", "PROGRAMA_FORMATIVO", "NRO_CONVENIO", "ID_CONVENIO"]
     campos_presentes = [c for c in campos_busqueda if c in df.columns]
 
     def construir_clave(fila):
-        partes = [normalizar(fila[c]) for c in campos_presentes]
-        return " | ".join(partes)
+        return " | ".join(normalizar(fila[c]) for c in campos_presentes)
 
     df["_BUSQUEDA_NORM"] = df.apply(construir_clave, axis=1)
+    return df
 
-    return df, None
+
+def cargar_datos_convenios():
+    candidatos = encontrar_archivos_por_palabra(PALABRA_CLAVE_CONVENIOS)
+    if not candidatos:
+        return None, "No se encontró ningún archivo Excel de convenios en el repositorio (el nombre debe contener la palabra 'convenio')."
+
+    ultimo_error = None
+    for ruta_excel in candidatos:
+        try:
+            df = _leer_convenios(ruta_excel, _mtime(ruta_excel))
+            return df, None
+        except Exception as e:
+            ultimo_error = f"Error al leer '{ruta_excel}': {e}"
+            continue
+    return None, ultimo_error or "No se pudo leer ningún archivo de convenios válido."
 
 
-def buscar(df: pd.DataFrame, consulta: str) -> pd.DataFrame:
-    """Búsqueda exacta por RUC/DNI y, si no hay coincidencia exacta,
-    búsqueda parcial por nombre/empresa/programa."""
+@st.cache_data(show_spinner=False)
+def _leer_constancias(ruta_excel: str, mtime: float):
+    libro = pd.ExcelFile(ruta_excel, engine="openpyxl")
+    hoja = HOJA_CONSTANCIAS if HOJA_CONSTANCIAS in libro.sheet_names else libro.sheet_names[0]
+    df = pd.read_excel(ruta_excel, sheet_name=hoja, header=FILA_ENCABEZADO_CONSTANCIAS, engine="openpyxl")
+
+    columnas_presentes = [c for c in COLUMNAS_CONSTANCIAS_ESPERADAS if c in df.columns]
+    if len(columnas_presentes) < 4 or "ID_CONSTANCIA" not in columnas_presentes:
+        raise ValueError("el archivo no tiene la estructura de columnas esperada para constancias")
+
+    df = df[columnas_presentes].copy()
+    df = df.dropna(subset=["ID_CONSTANCIA"]).reset_index(drop=True)
+
+    if "DNI" in df.columns:
+        df["DNI"] = df["DNI"].apply(limpiar_numero)
+
+    campos_busqueda = ["DNI", "APELLIDOS", "NOMBRES", "PROGRAMA_ESTUDIOS", "MODULO_CONSTANCIA", "ID_CONSTANCIA", "AÑO"]
+    campos_presentes = [c for c in campos_busqueda if c in df.columns]
+
+    def construir_clave(fila):
+        return " | ".join(normalizar(fila[c]) for c in campos_presentes)
+
+    df["_BUSQUEDA_NORM"] = df.apply(construir_clave, axis=1)
+    return df
+
+
+def cargar_datos_constancias():
+    candidatos = encontrar_archivos_por_palabra(PALABRA_CLAVE_CONSTANCIAS)
+    if not candidatos:
+        return None, "No se encontró ningún archivo Excel de constancias en el repositorio (el nombre debe contener la palabra 'constancia')."
+
+    ultimo_error = None
+    for ruta_excel in candidatos:
+        try:
+            df = _leer_constancias(ruta_excel, _mtime(ruta_excel))
+            return df, None
+        except Exception as e:
+            ultimo_error = f"Error al leer '{ruta_excel}': {e}"
+            continue
+    return None, ultimo_error or "No se pudo leer ningún archivo de constancias válido."
+
+
+def buscar_en_df(df: pd.DataFrame, consulta: str, tipo: str) -> pd.DataFrame:
     consulta_norm = normalizar(consulta)
     if not consulta_norm:
         return df.iloc[0:0]
-
     consulta_limpia = consulta.strip()
 
-    # 1) Coincidencia exacta por RUC
-    if "RUC" in df.columns:
-        exacto_ruc = df[df["RUC"] == consulta_limpia]
-        if not exacto_ruc.empty:
-            return exacto_ruc
+    if tipo == "convenio":
+        if "RUC" in df.columns:
+            exacto_ruc = df[df["RUC"] == consulta_limpia]
+            if not exacto_ruc.empty:
+                return exacto_ruc
+        if "DNI_REPRESENTANTE" in df.columns:
+            exacto_dni = df[df["DNI_REPRESENTANTE"] == consulta_limpia]
+            if not exacto_dni.empty:
+                return exacto_dni
+    else:
+        if "DNI" in df.columns:
+            exacto_dni = df[df["DNI"] == consulta_limpia]
+            if not exacto_dni.empty:
+                return exacto_dni
 
-    # 2) Coincidencia exacta por DNI del representante
-    if "DNI_REPRESENTANTE" in df.columns:
-        exacto_dni = df[df["DNI_REPRESENTANTE"] == consulta_limpia]
-        if not exacto_dni.empty:
-            return exacto_dni
-
-    # 3) Búsqueda parcial (nombre de empresa, representante, programa, N° convenio, etc.)
-    contiene = df[df["_BUSQUEDA_NORM"].str.contains(consulta_norm, na=False)]
-    return contiene
+    return df[df["_BUSQUEDA_NORM"].str.contains(consulta_norm, na=False)]
 
 
 def badge_estado(estado: str) -> str:
     estado_norm = normalizar(estado)
-    if estado_norm == "VIGENTE":
+    if estado_norm in ["VIGENTE", "EMITIDO", "ACTIVO", "OK"]:
         return f'<span class="badge badge-vigente">✅ {estado}</span>'
-    if "VENC" in estado_norm:
+    if "VENC" in estado_norm or "ANUL" in estado_norm:
         return f'<span class="badge badge-vencido">⛔ {estado}</span>'
-    return f'<span class="badge badge-otro">ℹ️ {estado if estado else "SIN ESTADO"}</span>'
+    return f'<span class="badge badge-otro">ℹ️ {estado if estado else "REGISTRADO"}</span>'
 
 
 def formato_fecha(valor) -> str:
@@ -453,7 +457,7 @@ def texto_o_guion(valor) -> str:
 
 
 # ==================================================================
-# 4. ESTADO DE SESIÓN
+# 5. ESTADO DE SESIÓN Y LOGIN
 # ==================================================================
 if "autenticado" not in st.session_state:
     st.session_state.autenticado = False
@@ -463,16 +467,13 @@ def cerrar_sesion():
     st.session_state.autenticado = False
 
 
-# ==================================================================
-# 5. PANTALLA DE LOGIN
-# ==================================================================
 def mostrar_login():
     col_izq, col_centro, col_der = st.columns([1, 1.3, 1])
     with col_centro:
         logo_encontrado = encontrar_logo()
         logo_html = ""
         if logo_encontrado:
-            logo_data = logo_como_base64(logo_encontrado)
+            logo_data = logo_como_base64(logo_encontrado, _mtime(logo_encontrado))
             if logo_data:
                 logo_html = (
                     f'<img src="{logo_data}" '
@@ -485,7 +486,7 @@ def mostrar_login():
             <div class="login-box">
                 {logo_html}
                 <p class="login-title">🎓 CETPRO CAJAMARCA</p>
-                <p class="login-subtitle">Sistema de búsqueda de convenios institucionales</p>
+                <p class="login-subtitle">Sistema de gestión de convenios y constancias</p>
             """,
             unsafe_allow_html=True,
         )
@@ -506,10 +507,9 @@ def mostrar_login():
 
 
 # ==================================================================
-# 6. PANTALLA PRINCIPAL (BUSCADOR)
+# 6. PANTALLA PRINCIPAL (CON PESTAÑAS: CONVENIOS / CONSTANCIAS)
 # ==================================================================
 def mostrar_buscador():
-    # ---- Encabezado ----
     col_logo, col_titulo, col_salir = st.columns([0.15, 0.7, 0.15])
     with col_logo:
         logo_encontrado = encontrar_logo()
@@ -520,8 +520,8 @@ def mostrar_buscador():
             """
             <div class="cetpro-header" style="margin-top:0;">
                 <div>
-                    <h1>🎓 Buscador de Convenios - CETPRO Cajamarca</h1>
-                    <p>Consulta institucional por DNI del representante, RUC, empresa o programa formativo</p>
+                    <h1>🎓 Sistema Institucional - CETPRO Cajamarca</h1>
+                    <p>Módulo de consulta centralizada de convenios y constancias EFSRT</p>
                 </div>
             </div>
             """,
@@ -531,103 +531,148 @@ def mostrar_buscador():
         st.write("")
         st.button("🚪 Cerrar sesión", on_click=cerrar_sesion)
 
-    # ---- Cargar datos ----
-    df, error = cargar_datos()
-    if error:
-        st.error(f"⚠️ {error}")
-        st.info("Verifica que el archivo Excel esté en la misma carpeta que app.py, dentro del repositorio.")
-        return
+    pestana_convenios, pestana_constancias = st.tabs(["📁 Convenios", "📜 Constancias EFSRT"])
 
-    # ---- Estadísticas rápidas ----
-    total = len(df)
-    vigentes = len(df[df["ESTADO"].apply(normalizar) == "VIGENTE"]) if "ESTADO" in df.columns else 0
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        st.markdown(
-            f'<div class="stat-box"><div class="stat-number">{total}</div>'
-            f'<div class="stat-label">📁 Convenios registrados</div></div>',
-            unsafe_allow_html=True,
-        )
-    with c2:
-        st.markdown(
-            f'<div class="stat-box"><div class="stat-number">{vigentes}</div>'
-            f'<div class="stat-label">✅ Convenios vigentes</div></div>',
-            unsafe_allow_html=True,
-        )
-    with c3:
-        hoy = datetime.now().strftime("%d/%m/%Y")
-        st.markdown(
-            f'<div class="stat-box"><div class="stat-number">{hoy}</div>'
-            f'<div class="stat-label">📅 Fecha de consulta</div></div>',
-            unsafe_allow_html=True,
-        )
+    # ---------------- MÓDULO DE CONVENIOS ----------------
+    with pestana_convenios:
+        df_conv, error_conv = cargar_datos_convenios()
+        if error_conv:
+            st.error(f"⚠️ {error_conv}")
+            st.info("Verifica que el archivo Excel de convenios esté en la misma carpeta que app.py, dentro del repositorio.")
+        else:
+            total = len(df_conv)
+            vigentes = len(df_conv[df_conv["ESTADO"].apply(normalizar) == "VIGENTE"]) if "ESTADO" in df_conv.columns else 0
 
-    st.write("")
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                st.markdown(f'<div class="stat-box"><div class="stat-number">{total}</div><div class="stat-label">📁 Convenios registrados</div></div>', unsafe_allow_html=True)
+            with c2:
+                st.markdown(f'<div class="stat-box"><div class="stat-number">{vigentes}</div><div class="stat-label">✅ Convenios vigentes</div></div>', unsafe_allow_html=True)
+            with c3:
+                hoy = datetime.now().strftime("%d/%m/%Y")
+                st.markdown(f'<div class="stat-box"><div class="stat-number">{hoy}</div><div class="stat-label">📅 Fecha de consulta</div></div>', unsafe_allow_html=True)
 
-    # ---- Buscador ----
-    col_buscar, col_boton = st.columns([4, 1])
-    with col_buscar:
-        consulta = st.text_input(
-            "🔎 Buscar por DNI del representante, RUC, empresa, representante o programa",
-            placeholder="Ej: 26641673  |  20510752938  |  MANTENIMIENTO INDUSTRIAL  |  ELECTRICIDAD",
-        )
-    with col_boton:
-        st.write("")
-        st.write("")
-        buscar_click = st.button("Buscar 🔍")
+            st.write("")
+            col_b1, col_b2 = st.columns([4, 1])
+            with col_b1:
+                consulta_conv = st.text_input(
+                    "🔎 Buscar por DNI del representante, RUC, empresa, representante o programa",
+                    placeholder="Ej: 26641673  |  20510752938  |  MANTENIMIENTO INDUSTRIAL",
+                    key="input_conv",
+                )
+            with col_b2:
+                st.write("")
+                st.write("")
+                btn_conv = st.button("Buscar 🔍", key="btn_conv_click")
 
-    if consulta or buscar_click:
-        if not consulta.strip():
-            st.warning("Ingresa un DNI, RUC, nombre o palabra clave para buscar.")
-            return
+            if consulta_conv or btn_conv:
+                if not consulta_conv.strip():
+                    st.warning("Ingresa un DNI, RUC, nombre o palabra clave para buscar.")
+                else:
+                    resultados_conv = buscar_en_df(df_conv, consulta_conv, "convenio")
+                    if resultados_conv.empty:
+                        st.markdown('<div class="result-card" style="border-left-color:#b02a37;"><p class="result-line">🚫 <b>No se encontraron convenios</b> que coincidan con la búsqueda.</p></div>', unsafe_allow_html=True)
+                    else:
+                        st.success(f"Se encontraron {len(resultados_conv)} convenio(s) coincidentes.")
+                        for _, fila in resultados_conv.iterrows():
+                            empresa = texto_o_guion(fila.get("EMPRESA_INSTITUCION"))
+                            estado = texto_o_guion(fila.get("ESTADO"))
+                            dias_restantes = fila.get("DIAS_RESTANTES")
+                            dias_texto = (
+                                f"{int(dias_restantes)} días"
+                                if pd.notna(dias_restantes) and str(dias_restantes).strip() != ""
+                                else "No calculado"
+                            )
 
-        resultados = buscar(df, consulta)
+                            html = f"""
+                            <div class="result-card">
+                                <div class="result-title">🏢 {empresa}</div>
+                                {badge_estado(estado)}
+                                <p class="result-line">🆔 <b>N° de Convenio:</b> {texto_o_guion(fila.get('NRO_CONVENIO'))} &nbsp;
+                                (ID: {texto_o_guion(fila.get('ID_CONVENIO'))})</p>
+                                <p class="result-line">📇 <b>RUC:</b> {texto_o_guion(fila.get('RUC'))}</p>
+                                <p class="result-line">📍 <b>Dirección:</b> {texto_o_guion(fila.get('DIRECCION'))}</p>
+                                <p class="result-line">👤 <b>Representante:</b> {texto_o_guion(fila.get('REPRESENTANTE'))}</p>
+                                <p class="result-line">🪪 <b>DNI del representante:</b> {texto_o_guion(fila.get('DNI_REPRESENTANTE'))}</p>
+                                <p class="result-line">📞 <b>Teléfono:</b> {texto_o_guion(fila.get('TELEFONO'))}</p>
+                                <p class="result-line">📚 <b>Programa formativo:</b> {texto_o_guion(fila.get('PROGRAMA_FORMATIVO'))}</p>
+                                <p class="result-line">📅 <b>Fecha de inicio:</b> {formato_fecha(fila.get('FECHA_INICIO'))}</p>
+                                <p class="result-line">⏳ <b>Duración:</b> {texto_o_guion(fila.get('DURACION_AÑOS'))} año(s)</p>
+                                <p class="result-line">🏁 <b>Fecha de finalización:</b> {formato_fecha(fila.get('FECHA_FIN'))}</p>
+                                <p class="result-line">⌛ <b>Días restantes:</b> {dias_texto}</p>
+                                <p class="result-line">📝 <b>Observaciones:</b> {texto_o_guion(fila.get('OBSERVACIONES'))}</p>
+                            </div>
+                            """
+                            st.markdown(html, unsafe_allow_html=True)
 
-        if resultados.empty:
-            st.markdown(
-                """
-                <div class="result-card" style="border-left-color:#b02a37;">
-                    <p class="result-line">🚫 <b>No se encontraron convenios</b> que coincidan con la búsqueda.
-                    Verifica el DNI, RUC o nombre ingresado.</p>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-            return
+    # ---------------- MÓDULO DE CONSTANCIAS EFSRT ----------------
+    with pestana_constancias:
+        df_const, error_const = cargar_datos_constancias()
+        if error_const:
+            st.error(f"⚠️ {error_const}")
+            st.info("Verifica que el archivo Excel de constancias esté en la misma carpeta que app.py, dentro del repositorio.")
+        else:
+            total_c = len(df_const)
+            ok_c = len(df_const[df_const["ESTADO"].apply(normalizar) == "OK"]) if "ESTADO" in df_const.columns else 0
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                st.markdown(f'<div class="stat-box"><div class="stat-number">{total_c}</div><div class="stat-label">📜 Constancias registradas</div></div>', unsafe_allow_html=True)
+            with c2:
+                st.markdown(f'<div class="stat-box"><div class="stat-number">{ok_c}</div><div class="stat-label">✅ Constancias OK</div></div>', unsafe_allow_html=True)
+            with c3:
+                hoy = datetime.now().strftime("%d/%m/%Y")
+                st.markdown(f'<div class="stat-box"><div class="stat-number">{hoy}</div><div class="stat-label">📅 Fecha de consulta</div></div>', unsafe_allow_html=True)
 
-        st.success(f"Se encontraron {len(resultados)} convenio(s) coincidentes.")
+            st.write("")
+            col_cb1, col_cb2 = st.columns([4, 1])
+            with col_cb1:
+                consulta_const = st.text_input(
+                    "🔎 Buscar por DNI, apellidos, nombres, programa o módulo",
+                    placeholder="Ej: 26628709  |  MALCA RUITON  |  GESTION Y ADMINISTRACION",
+                    key="input_const",
+                )
+            with col_cb2:
+                st.write("")
+                st.write("")
+                btn_const = st.button("Buscar 🔍", key="btn_const_click")
 
-        # ---- Mostrar cada resultado como tarjeta vertical tipo párrafo ----
-        for _, fila in resultados.iterrows():
-            empresa = texto_o_guion(fila.get("EMPRESA_INSTITUCION"))
-            estado = texto_o_guion(fila.get("ESTADO"))
-            dias_restantes = fila.get("DIAS_RESTANTES")
-            dias_texto = (
-                f"{int(dias_restantes)} días"
-                if pd.notna(dias_restantes) and str(dias_restantes).strip() != ""
-                else "No calculado"
-            )
+            if consulta_const or btn_const:
+                if not consulta_const.strip():
+                    st.warning("Ingresa un DNI, apellido, nombre o palabra clave para buscar.")
+                else:
+                    resultados_const = buscar_en_df(df_const, consulta_const, "constancia")
+                    if resultados_const.empty:
+                        st.markdown('<div class="result-card" style="border-left-color:#b02a37;"><p class="result-line">🚫 <b>No se encontraron constancias</b> que coincidan con la búsqueda.</p></div>', unsafe_allow_html=True)
+                    else:
+                        st.success(f"Se encontraron {len(resultados_const)} constancia(s) coincidentes.")
+                        for _, fila in resultados_const.iterrows():
+                            apellidos = texto_o_guion(fila.get("APELLIDOS"))
+                            nombres = texto_o_guion(fila.get("NOMBRES"))
+                            estado = texto_o_guion(fila.get("ESTADO"))
+                            enlace_drive = fila.get("ENLACE_DRIVE")
 
-            html = f"""
-            <div class="result-card">
-                <div class="result-title">🏢 {empresa}</div>
-                {badge_estado(estado)}
-                <p class="result-line">🆔 <b>N° de Convenio:</b> {texto_o_guion(fila.get('NRO_CONVENIO'))} &nbsp;
-                (ID: {texto_o_guion(fila.get('ID_CONVENIO'))})</p>
-                <p class="result-line">📇 <b>RUC:</b> {texto_o_guion(fila.get('RUC'))}</p>
-                <p class="result-line">📍 <b>Dirección:</b> {texto_o_guion(fila.get('DIRECCION'))}</p>
-                <p class="result-line">👤 <b>Representante:</b> {texto_o_guion(fila.get('REPRESENTANTE'))}</p>
-                <p class="result-line">🪪 <b>DNI del representante:</b> {texto_o_guion(fila.get('DNI_REPRESENTANTE'))}</p>
-                <p class="result-line">📞 <b>Teléfono:</b> {texto_o_guion(fila.get('TELEFONO'))}</p>
-                <p class="result-line">📚 <b>Programa formativo:</b> {texto_o_guion(fila.get('PROGRAMA_FORMATIVO'))}</p>
-                <p class="result-line">📅 <b>Fecha de inicio:</b> {formato_fecha(fila.get('FECHA_INICIO'))}</p>
-                <p class="result-line">⏳ <b>Duración:</b> {texto_o_guion(fila.get('DURACION_AÑOS'))} año(s)</p>
-                <p class="result-line">🏁 <b>Fecha de finalización:</b> {formato_fecha(fila.get('FECHA_FIN'))}</p>
-                <p class="result-line">⌛ <b>Días restantes:</b> {dias_texto}</p>
-                <p class="result-line">📝 <b>Observaciones:</b> {texto_o_guion(fila.get('OBSERVACIONES'))}</p>
-            </div>
-            """
-            st.markdown(html, unsafe_allow_html=True)
+                            enlace_html = ""
+                            if pd.notna(enlace_drive) and str(enlace_drive).strip() != "":
+                                enlace_html = (
+                                    f'<p class="result-line">🔗 <b>Enlace de Drive:</b> '
+                                    f'<a href="{enlace_drive}" target="_blank">Abrir Constancia ↗</a></p>'
+                                )
+
+                            html = f"""
+                            <div class="result-card">
+                                <div class="result-title">👤 {apellidos}, {nombres}</div>
+                                {badge_estado(estado)}
+                                <p class="result-line">📜 <b>ID / Código:</b> {texto_o_guion(fila.get('ID_CONSTANCIA'))} &nbsp;
+                                (Año: {texto_o_guion(fila.get('AÑO'))})</p>
+                                <p class="result-line">🪪 <b>DNI:</b> {texto_o_guion(fila.get('DNI'))}</p>
+                                <p class="result-line">📚 <b>Programa de Estudios:</b> {texto_o_guion(fila.get('PROGRAMA_ESTUDIOS'))}</p>
+                                <p class="result-line">⚙️ <b>Módulo:</b> {texto_o_guion(fila.get('MODULO_CONSTANCIA'))}</p>
+                                <p class="result-line">📁 <b>Archivo recomendado:</b> {texto_o_guion(fila.get('NOMBRE_ARCHIVO_RECOMENDADO'))}</p>
+                                {enlace_html}
+                                <p class="result-line">📝 <b>Observación:</b> {texto_o_guion(fila.get('OBSERVACION'))}</p>
+                            </div>
+                            """
+                            st.markdown(html, unsafe_allow_html=True)
 
 
 # ==================================================================
